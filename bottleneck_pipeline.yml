@@ -1,0 +1,85 @@
+id: bottleneck_pipeline
+namespace: company.bottleneck
+
+description: |
+  Pipeline industriel pour BottleNeck.
+  Automatisation du nettoyage, de la fusion et de l'analyse des vins premium.
+  Les tests de qualité (Fail-Fast) sont effectués dans des tâches séparées.
+
+# --- PLANIFICATION (Triggers) ---
+triggers:
+  - id: monthly_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 9 15 * *" # Tous les 15 du mois à 9h00
+
+tasks:
+  - id: processing_zone
+    type: io.kestra.plugin.core.flow.WorkingDirectory
+    tasks:
+      
+      # 1. RÉCUPÉRATION DU CODE
+      - id: git_clone
+        type: io.kestra.plugin.git.Clone
+        url: https://github.com/MarwaElAllouchi/bottleneck-project.git
+        branch: main
+
+      # 2. CHARGEMENT DES DONNÉES
+      - id: 01_load_data
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install pandas openpyxl duckdb
+        commands:
+          - python scripts/01_load_tables.py
+
+      # 3. NETTOYAGE DES TABLES (ERP, Web, Liaison)
+      - id: 02_clean_tables
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        commands:
+          - python scripts/02_clean_tables.py
+
+      # 4. TESTS DE QUALITÉ SUR LES TABLES NETTOYÉES
+      - id: 02_tests_clean_tables
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        commands:
+          - python scripts/tests_clean_tables.py
+
+      # 5. FUSION ET CALCUL DU CHIFFRE D'AFFAIRES
+      - id: 03_fusion_and_ca
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        commands:
+          - python scripts/03_fusion_calcul_ca.py
+
+      # 6. ANALYSE STATISTIQUE (Z-Score & Outliers)
+      - id: 04_premium_analysis
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        commands:
+          - python scripts/04_vins_premium.py
+
+      # 7. RÉCUPÉRATION DES RAPPORTS FINAUX (Outputs)
+      - id: get_outputs
+        type: io.kestra.plugin.core.storage.LocalFiles
+        outputs:
+          - exports/rapport_ca_final.xlsx
+          - exports/vins_premium.csv
+          - exports/vins_ordinaires.csv
+
+# --- GESTION DES ERREURS ---
+errors:
+  - id: alert_on_failure
+    type: io.kestra.plugin.core.log.Log
+    message: "❌ ALERTE : Le pipeline s'est arrêté. Une anomalie de donnée a été détectée."
