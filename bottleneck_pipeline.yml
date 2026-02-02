@@ -3,14 +3,14 @@ namespace: company.bottleneck
 
 description: |
   Pipeline industriel pour BottleNeck.
-  Automatisation du nettoyage, de la fusion et de l'analyse des vins premium.
-  Les tests de qualité (Fail-Fast) sont effectués dans des tâches séparées.
+  Structure : 1 Script de Traitement -> 1 Script de Test (Fail-Fast).
+  Inclus : Retries techniques et Alertes Mail en cas d'échec.
 
-# --- PLANIFICATION (Triggers) ---
+# --- PLANIFICATION ---
 triggers:
   - id: monthly_schedule
     type: io.kestra.plugin.core.trigger.Schedule
-    cron: "0 9 15 * *" # Tous les 15 du mois à 9h00
+    cron: "0 9 15 * *" 
 
 tasks:
   - id: processing_zone
@@ -22,6 +22,10 @@ tasks:
         type: io.kestra.plugin.git.Clone
         url: https://github.com/MarwaElAllouchi/bottleneck-project.git
         branch: main
+        retry:
+          type: io.kestra.plugin.core.stop.Retry
+          maxAttempt: 3
+          waitDuration: PT30S
 
       # 2. CHARGEMENT DES DONNÉES
       - id: 01_load_data
@@ -32,45 +36,101 @@ tasks:
         beforeCommands:
           - pip install pandas openpyxl duckdb
         commands:
-          - python scripts/01_load_tables.py
+          - python scripts/01_load_data.py
+        retry:
+          type: io.kestra.plugin.core.stop.Retry
+          maxAttempt: 2
+          waitDuration: PT1M
 
-      # 3. NETTOYAGE DES TABLES (ERP, Web, Liaison)
-      - id: 02_clean_tables
+      # 3. NETTOYAGE
+      - id: 02_clean_data
         type: io.kestra.plugin.scripts.python.Commands
         runner: DOCKER
         docker:
           image: python:3.11-slim
+        beforeCommands:
+          - pip install duckdb
         commands:
-          - python scripts/02_clean_tables.py
+          - python scripts/02_clean_data.py
 
-      # 4. TESTS DE QUALITÉ SUR LES TABLES NETTOYÉES
-      - id: 02_tests_clean_tables
+      # 4. TEST QUALITÉ DONNÉES
+      - id: test_quality_data
         type: io.kestra.plugin.scripts.python.Commands
         runner: DOCKER
         docker:
           image: python:3.11-slim
+        beforeCommands:
+          - pip install duckdb
         commands:
-          - python scripts/tests_clean_tables.py
+          - python scripts/test_quality_data.py
 
-      # 5. FUSION ET CALCUL DU CHIFFRE D'AFFAIRES
-      - id: 03_fusion_and_ca
+      # 5. FUSION DES DONNÉES
+      - id: 03_fusion_data
         type: io.kestra.plugin.scripts.python.Commands
         runner: DOCKER
         docker:
           image: python:3.11-slim
+        beforeCommands:
+          - pip install duckdb
         commands:
-          - python scripts/03_fusion_calcul_ca.py
+          - python scripts/03_fusion_data.py
 
-      # 6. ANALYSE STATISTIQUE (Z-Score & Outliers)
-      - id: 04_premium_analysis
+      # 6. TEST COHÉRENCE JOINTURE
+      - id: test_coherence_jointure
         type: io.kestra.plugin.scripts.python.Commands
         runner: DOCKER
         docker:
           image: python:3.11-slim
+        beforeCommands:
+          - pip install duckdb
         commands:
-          - python scripts/04_vins_premium.py
+          - python scripts/test_coherence_jointure.py
 
-      # 7. RÉCUPÉRATION DES RAPPORTS FINAUX (Outputs)
+      # 7. CALCUL DU CHIFFRE D'AFFAIRES
+      - id: 04_calcul_ca
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install pandas duckdb
+        commands:
+          - python scripts/04_calcul_ca.py
+
+      # 8. TEST COHÉRENCE MONTANT CA
+      - id: test_coherence_ca
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install duckdb
+        commands:
+          - python scripts/test_coherence_ca.py
+
+      # 9. ANALYSE VINS PREMIUM
+      - id: 05_vins_premium
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install pandas duckdb
+        commands:
+          - python scripts/05_vins_premium.py
+
+      # 10. TEST STATISTIQUES ET EXPORT FINAL
+      - id: test_statistiques_export
+        type: io.kestra.plugin.scripts.python.Commands
+        runner: DOCKER
+        docker:
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install duckdb
+        commands:
+          - python scripts/test_statistiques_export.py
+
+      # 11. RÉCUPÉRATION DES OUTPUTS
       - id: get_outputs
         type: io.kestra.plugin.core.storage.LocalFiles
         outputs:
@@ -82,4 +142,19 @@ tasks:
 errors:
   - id: alert_on_failure
     type: io.kestra.plugin.core.log.Log
-    message: "❌ ALERTE : Le pipeline s'est arrêté. Une anomalie de donnée a été détectée."
+    message: "❌ ALERTE : Le pipeline s'est arrêté. Une anomalie de donnée ou une erreur technique a été détectée."
+
+  - id: send_email_alert
+    type: io.kestra.plugin.notifications.mail.MailSend
+    from: "alerte-kestra@votreentreprise.com"
+    to: "votre-email@exemple.com"
+    subject: "🚨 ÉCHEC DU PIPELINE : BottleNeck Pipeline"
+    htmlText: |
+      <h2>Erreur sur le Pipeline BottleNeck</h2>
+      <p>L'exécution du pipeline s'est arrêtée prématurément.</p>
+      <p><b>Détails :</b></p>
+      <ul>
+        <li>ID Exécution : {{ execution.id }}</li>
+        <li>Date : {{ now() }}</li>
+      </ul>
+      <p>Veuillez consulter les logs Kestra pour identifier si l'erreur provient d'un Test de Qualité (Fail-Fast) ou d'un problème technique.</p>
