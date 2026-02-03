@@ -1,6 +1,5 @@
 import duckdb
 import pandas as pd
-import os
 
 # Connexion DuckDB
 con = duckdb.connect("bottleneck.duckdb")

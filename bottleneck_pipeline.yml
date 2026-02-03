@@ -23,9 +23,9 @@ tasks:
         url: https://github.com/MarwaElAllouchi/bottleneck-project.git
         branch: main
         retry:
-          type: io.kestra.plugin.core.stop.Retry
-          maxAttempt: 3
-          waitDuration: PT30S
+          type: constant 
+          maxAttempts: 3 
+          interval: PT30S 
 
       # 2. CHARGEMENT DES DONNÉES
       - id: 01_load_data
@@ -34,13 +34,13 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install pandas openpyxl duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/01_load_data.py
         retry:
-          type: io.kestra.plugin.core.stop.Retry
-          maxAttempt: 2
-          waitDuration: PT1M
+          type: constant 
+          maxAttempts: 2 
+          interval: PT1M 
 
       # 3. NETTOYAGE
       - id: 02_clean_data
@@ -49,7 +49,7 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/02_clean_data.py
 
@@ -60,7 +60,7 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/test_quality_data.py
 
@@ -71,7 +71,7 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/03_fusion_data.py
 
@@ -82,7 +82,7 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/test_coherence_jointure.py
 
@@ -93,7 +93,7 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install pandas duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/04_calcul_ca.py
 
@@ -104,7 +104,7 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/test_coherence_ca.py
 
@@ -115,7 +115,7 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install pandas duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
           - python scripts/05_vins_premium.py
 
@@ -126,15 +126,15 @@ tasks:
         docker:
           image: python:3.11-slim
         beforeCommands:
-          - pip install duckdb
+          - pip install pandas numpy duckdb openpyxl
         commands:
-          - python scripts/test_statistiques_export.py
+          - python scripts/tests_statistiques_export.py
 
       # 11. RÉCUPÉRATION DES OUTPUTS
       - id: get_outputs
         type: io.kestra.plugin.core.storage.LocalFiles
         outputs:
-          - exports/rapport_ca_final.xlsx
+          - exports/ca_par_produit.xlsx
           - exports/vins_premium.csv
           - exports/vins_ordinaires.csv
 
@@ -144,17 +144,25 @@ errors:
     type: io.kestra.plugin.core.log.Log
     message: "❌ ALERTE : Le pipeline s'est arrêté. Une anomalie de donnée ou une erreur technique a été détectée."
 
-  - id: send_email_alert
-    type: io.kestra.plugin.notifications.mail.MailSend
-    from: "alerte-kestra@votreentreprise.com"
-    to: "votre-email@exemple.com"
-    subject: "🚨 ÉCHEC DU PIPELINE : BottleNeck Pipeline"
-    htmlText: |
-      <h2>Erreur sur le Pipeline BottleNeck</h2>
-      <p>L'exécution du pipeline s'est arrêtée prématurément.</p>
-      <p><b>Détails :</b></p>
+  - id: send_test_email
+    type: io.kestra.plugin.googleworkspace.mail.Send
+    clientId: "{{ secret('GMAIL_CLIENT_ID') }}"
+    clientSecret: "{{ secret('GMAIL_CLIENT_SECRET') }}"
+    refreshToken: "{{ secret('GMAIL_REFRESH_TOKEN') }}"
+    
+    to:
+      - "{{ secret('MAIL_ALERT') }}"
+    subject: "🚨 Test Kestra - Pipeline BottleNeck {{ execution.id }}"
+    htmlBody: |
+     <h2>🚨 Alerte Pipeline BottleNeck</h2>
+     <p>Le pipeline <b>BottleNeck</b> a rencontré une erreur lors de son exécution.</p>
+     <p><b>Détails de l'exécution :</b></p>
       <ul>
-        <li>ID Exécution : {{ execution.id }}</li>
-        <li>Date : {{ now() }}</li>
+        <li><b>ID de l'exécution :</b> {{ execution.id }}</li>
+        <li><b>Date et heure :</b> {{ now() | date("dd/MM/yyyy HH:mm:ss") }}</li>
+        <li><b>Étape :</b> {{ task.id }}</li> <!-- correction ici -->
+        <li><b>Message :</b> Une anomalie de donnée ou une erreur technique a été détectée</li>
       </ul>
-      <p>Veuillez consulter les logs Kestra pour identifier si l'erreur provient d'un Test de Qualité (Fail-Fast) ou d'un problème technique.</p>
+      <p>Veuillez consulter les logs Kestra pour plus de détails et résoudre le problème.</p>
+      <p>Merci,</p>
+      <p>L’équipe Data Engineering</p>
