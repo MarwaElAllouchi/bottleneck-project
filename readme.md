@@ -32,6 +32,7 @@ Le pipeline est exécuté automatiquement :
 🕘 À 09h
 via un trigger CRON :
 0 9 15 * *
+
 🔄 Pipeline de Données
 
 Le pipeline suit une logique industrielle structurée :
